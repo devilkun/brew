@@ -63,6 +63,10 @@ class DependencyCollector
     Dependency.new("git", tags)
   end
 
+  def brewed_curl_dep_if_needed(tags)
+    Dependency.new("curl", tags)
+  end
+
   def subversion_dep_if_needed(tags)
     return if Utils::Svn.available?
 
@@ -123,9 +127,6 @@ class DependencyCollector
     when :linux         then LinuxRequirement.new(tags)
     when :macos         then MacOSRequirement.new(tags)
     when :maximum_macos then MacOSRequirement.new(tags, comparator: "<=")
-    when :osxfuse       then OsxfuseRequirement.new(tags)
-    when :tuntap        then TuntapRequirement.new(tags)
-    when :x11           then X11Requirement.new(tags)
     when :xcode         then XcodeRequirement.new(tags)
     else
       raise ArgumentError, "Unsupported special dependency #{spec.inspect}"
@@ -142,7 +143,10 @@ class DependencyCollector
     tags << :build << :test
     strategy = spec.download_strategy
 
-    if strategy <= CurlDownloadStrategy
+    if strategy <= HomebrewCurlDownloadStrategy
+      brewed_curl_dep_if_needed(tags)
+      parse_url_spec(spec.url, tags)
+    elsif strategy <= CurlDownloadStrategy
       parse_url_spec(spec.url, tags)
     elsif strategy <= GitDownloadStrategy
       git_dep_if_needed(tags)
