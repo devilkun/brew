@@ -57,8 +57,8 @@ GEM
       mini_portile2 (~> 2.5.0)
       racc (~> 1.4)
     ntlm-http (0.1.1)
-    parallel (1.20.1)
-    parallel_tests (3.4.0)
+    parallel (1.21.0)
+    parallel_tests (3.7.3)
       parallel
     parlour (5.0.0)
       commander (~> 4.5)
