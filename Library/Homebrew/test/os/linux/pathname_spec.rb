@@ -1,9 +1,8 @@
-# typed: false
 # frozen_string_literal: true
 
 require "extend/pathname"
 
-describe Pathname do
+RSpec.describe Pathname do
   let(:elf_dir) { described_class.new "#{TEST_FIXTURE_DIR}/elf" }
   let(:sho) { elf_dir/"libforty.so.0" }
   let(:sho_without_runpath_rpath) { elf_dir/"libhello.so.0" }
@@ -43,11 +42,6 @@ describe Pathname do
   end
 
   describe "#patch!" do
-    # testing only patchelf.rb as HOMEBREW_PREFIX is different for tests,
-    # and DevelopmentTools.locate fails to locate patchelf
-    # TODO: use stub_const("HOMEBREW_PATCHELF_RB_WRITE", true) in tests instead.
-    HOMEBREW_PATCHELF_RB_WRITE = true
-
     let(:placeholder_prefix) { "@@HOMEBREW_PREFIX@@" }
     let(:short_prefix) { "/home/dwarf" }
     let(:standard_prefix) { "/home/linuxbrew/.linuxbrew" }
@@ -59,7 +53,7 @@ describe Pathname do
       prefixes.each do |new_prefix|
         patch_elfs do |elf|
           interpreter = elf.interpreter.gsub(placeholder_prefix, new_prefix)
-          elf.patch!(interpreter: interpreter)
+          elf.patch!(interpreter:)
 
           modified_elf = elf.dirname/"mod.#{elf.basename}"
           FileUtils.cp(elf, modified_elf)
@@ -73,7 +67,7 @@ describe Pathname do
       prefixes.each do |new_prefix|
         patch_elfs do |elf|
           rpath = elf.rpath.gsub(placeholder_prefix, new_prefix)
-          elf.patch!(rpath: rpath)
+          elf.patch!(rpath:)
 
           modified_elf = elf.dirname/"mod.#{elf.basename}"
           FileUtils.cp(elf, modified_elf)
@@ -88,7 +82,7 @@ describe Pathname do
         patch_elfs do |elf|
           interpreter = elf.interpreter.gsub(placeholder_prefix, new_prefix)
           rpath = elf.rpath.gsub(placeholder_prefix, new_prefix)
-          elf.patch!(interpreter: interpreter, rpath: rpath)
+          elf.patch!(interpreter:, rpath:)
 
           modified_elf = elf.dirname/"mod.#{elf.basename}"
           FileUtils.cp(elf, modified_elf)

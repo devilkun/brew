@@ -1,24 +1,23 @@
-# typed: false
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 # This script is loaded by formula_installer as a separate instance.
 # Thrown exceptions are propagated back to the parent process over a pipe
 
+raise "#{__FILE__} must not be loaded via `require`." if $PROGRAM_NAME != __FILE__
+
 old_trap = trap("INT") { exit! 130 }
 
-require "global"
+require_relative "global"
 require "build_options"
-require "cxxstdlib"
 require "keg"
 require "extend/ENV"
-require "debrew"
 require "fcntl"
-require "socket"
+require "utils/socket"
 require "cmd/install"
+require "json/add/exception"
 
 # A formula build.
-#
-# @api private
 class Build
   attr_reader :formula, :deps, :reqs, :args
 
@@ -27,21 +26,13 @@ class Build
     @formula.build = BuildOptions.new(options, formula.options)
     @args = args
 
-    if args.ignore_deps?
+    if args.ignore_dependencies?
       @deps = []
       @reqs = []
     else
       @deps = expand_deps
       @reqs = expand_reqs
     end
-  end
-
-  def post_superenv_hacks
-    # Only allow Homebrew-approved directories into the PATH, unless
-    # a formula opts-in to allowing the user's path.
-    return if !formula.env.userpaths? && reqs.none? { |rq| rq.env.userpaths? }
-
-    ENV.userpaths!
   end
 
   def effective_build_options_for(dependent)
@@ -64,7 +55,7 @@ class Build
       build = effective_build_options_for(dependent)
       if dep.prune_from_option?(build) ||
          dep.prune_if_build_and_not_dependent?(dependent, formula) ||
-         (dep.test? && !dep.build?)
+         (dep.test? && !dep.build?) || dep.implicit?
         Dependency.prune
       elsif dep.build?
         Dependency.keep_but_prune_recursive_deps
@@ -84,35 +75,35 @@ class Build
     ENV.activate_extensions!(env: args.env)
 
     if superenv?(args.env)
-      ENV.keg_only_deps = keg_only_deps
-      ENV.deps = formula_deps
-      ENV.run_time_deps = run_time_deps
+      superenv = T.cast(ENV, Superenv)
+      superenv.keg_only_deps = keg_only_deps
+      superenv.deps = formula_deps
+      superenv.run_time_deps = run_time_deps
       ENV.setup_build_environment(
-        formula:      formula,
-        cc:           args.cc,
-        build_bottle: args.build_bottle?,
-        bottle_arch:  args.bottle_arch,
+        formula:,
+        cc:            args.cc,
+        build_bottle:  args.build_bottle?,
+        bottle_arch:   args.bottle_arch,
+        debug_symbols: args.debug_symbols?,
       )
-      post_superenv_hacks
       reqs.each do |req|
         req.modify_build_environment(
           env: args.env, cc: args.cc, build_bottle: args.build_bottle?, bottle_arch: args.bottle_arch,
         )
       end
-      deps.each(&:modify_build_environment)
     else
       ENV.setup_build_environment(
-        formula:      formula,
-        cc:           args.cc,
-        build_bottle: args.build_bottle?,
-        bottle_arch:  args.bottle_arch,
+        formula:,
+        cc:            args.cc,
+        build_bottle:  args.build_bottle?,
+        bottle_arch:   args.bottle_arch,
+        debug_symbols: args.debug_symbols?,
       )
       reqs.each do |req|
         req.modify_build_environment(
           env: args.env, cc: args.cc, build_bottle: args.build_bottle?, bottle_arch: args.bottle_arch,
         )
       end
-      deps.each(&:modify_build_environment)
 
       keg_only_deps.each do |dep|
         ENV.prepend_path "PATH", dep.opt_bin.to_s
@@ -132,63 +123,76 @@ class Build
     }
 
     with_env(new_env) do
-      formula.extend(Debrew::Formula) if args.debug?
+      if args.debug? && !Homebrew::EnvConfig.disable_debrew?
+        require "debrew"
+        formula.extend(Debrew::Formula)
+      end
 
       formula.update_head_version
 
       formula.brew(
-        fetch:       false,
-        keep_tmp:    args.keep_tmp?,
-        interactive: args.interactive?,
+        fetch:         false,
+        keep_tmp:      args.keep_tmp?,
+        debug_symbols: args.debug_symbols?,
+        interactive:   args.interactive?,
       ) do
-        # For head builds, HOMEBREW_FORMULA_PREFIX should include the commit,
-        # which is not known until after the formula has been staged.
-        ENV["HOMEBREW_FORMULA_PREFIX"] = formula.prefix
-
-        formula.patch
-
-        if args.git?
-          system "git", "init"
-          system "git", "add", "-A"
-        end
-        if args.interactive?
-          ohai "Entering interactive mode..."
-          puts <<~EOS
-            Type `exit` to return and finalize the installation.
-            Install to this prefix: #{formula.prefix}
-          EOS
+        with_env(
+          # For head builds, HOMEBREW_FORMULA_PREFIX should include the commit,
+          # which is not known until after the formula has been staged.
+          HOMEBREW_FORMULA_PREFIX:    formula.prefix,
+          # https://reproducible-builds.org/docs/build-path/
+          HOMEBREW_FORMULA_BUILDPATH: formula.buildpath,
+          # https://reproducible-builds.org/docs/source-date-epoch/
+          SOURCE_DATE_EPOCH:          formula.source_modified_time.to_i.to_s,
+          # Avoid make getting confused about timestamps.
+          # https://github.com/Homebrew/homebrew-core/pull/87470
+          TZ:                         "UTC0",
+        ) do
+          formula.patch
 
           if args.git?
-            puts <<~EOS
-              This directory is now a Git repository. Make your changes and then use:
-                git diff | pbcopy
-              to copy the diff to the clipboard.
-            EOS
+            system "git", "init"
+            system "git", "add", "-A"
           end
+          if args.interactive?
+            ohai "Entering interactive mode..."
+            puts <<~EOS
+              Type `exit` to return and finalize the installation.
+              Install to this prefix: #{formula.prefix}
+            EOS
 
-          interactive_shell(formula)
-        else
-          formula.prefix.mkpath
+            if args.git?
+              puts <<~EOS
+                This directory is now a Git repository. Make your changes and then use:
+                  git diff | pbcopy
+                to copy the diff to the clipboard.
+              EOS
+            end
 
-          (formula.logs/"00.options.out").write \
-            "#{formula.full_name} #{formula.build.used_options.sort.join(" ")}".strip
-          formula.install
+            interactive_shell(formula)
+          else
+            formula.prefix.mkpath
+            formula.logs.mkpath
 
-          stdlibs = detect_stdlibs(ENV.compiler)
-          tab = Tab.create(formula, ENV.compiler, stdlibs.first)
-          tab.write
+            (formula.logs/"00.options.out").write \
+              "#{formula.full_name} #{formula.build.used_options.sort.join(" ")}".strip
+            formula.install
 
-          # Find and link metafiles
-          formula.prefix.install_metafiles formula.buildpath
-          formula.prefix.install_metafiles formula.libexec if formula.libexec.exist?
+            stdlibs = detect_stdlibs
+            tab = Tab.create(formula, ENV.compiler, stdlibs.first)
+            tab.write
+
+            # Find and link metafiles
+            formula.prefix.install_metafiles formula.buildpath
+            formula.prefix.install_metafiles formula.libexec if formula.libexec.exist?
+          end
         end
       end
     end
   end
 
-  def detect_stdlibs(compiler)
+  def detect_stdlibs
     keg = Keg.new(formula.prefix)
-    CxxStdlib.check_compatibility(formula, deps, keg, compiler)
 
     # The stdlib recorded in the install receipt is used during dependency
     # compatibility checks, so we only care about the stdlib that libraries
@@ -196,35 +200,38 @@ class Build
     keg.detect_cxx_stdlibs(skip_executables: true)
   end
 
-  def fixopt(f)
-    path = if f.linked_keg.directory? && f.linked_keg.symlink?
-      f.linked_keg.resolved_path
-    elsif f.prefix.directory?
-      f.prefix
-    elsif (kids = f.rack.children).size == 1 && kids.first.directory?
+  def fixopt(formula)
+    path = if formula.linked_keg.directory? && formula.linked_keg.symlink?
+      formula.linked_keg.resolved_path
+    elsif formula.prefix.directory?
+      formula.prefix
+    elsif (kids = formula.rack.children).size == 1 && kids.first.directory?
       kids.first
     else
       raise
     end
     Keg.new(path).optlink(verbose: args.verbose?)
   rescue
-    raise "#{f.opt_prefix} not present or broken\nPlease reinstall #{f.full_name}. Sorry :("
+    raise "#{formula.opt_prefix} not present or broken\nPlease reinstall #{formula.full_name}. Sorry :("
   end
 end
 
 begin
-  args = Homebrew.install_args.parse
+  ENV.delete("HOMEBREW_FORBID_PACKAGES_FROM_PATHS")
+  args = Homebrew::Cmd::InstallCmd.new.args
   Context.current = args.context
 
-  error_pipe = UNIXSocket.open(ENV.fetch("HOMEBREW_ERROR_PIPE"), &:recv_io)
+  error_pipe = Utils::UNIXSocketExt.open(ENV.fetch("HOMEBREW_ERROR_PIPE"), &:recv_io)
   error_pipe.fcntl(Fcntl::F_SETFD, Fcntl::FD_CLOEXEC)
 
   trap("INT", old_trap)
 
   formula = args.named.to_formulae.first
   options = Options.create(args.flags_only)
-  build   = Build.new(formula, options, args: args)
+  build   = Build.new(formula, options, args:)
   build.install
+# Any exception means the build did not complete.
+# The `case` for what to do per-exception class is further down.
 rescue Exception => e # rubocop:disable Lint/RescueException
   error_hash = JSON.parse e.to_json
 
@@ -233,14 +240,21 @@ rescue Exception => e # rubocop:disable Lint/RescueException
   # BuildErrors are specific to build processes and not other
   # children, which is why we create the necessary state here
   # and not in Utils.safe_fork.
-  case error_hash["json_class"]
-  when "BuildError"
+  case e
+  when BuildError
     error_hash["cmd"] = e.cmd
     error_hash["args"] = e.args
     error_hash["env"] = e.env
-  when "ErrorDuringExecution"
+  when ErrorDuringExecution
     error_hash["cmd"] = e.cmd
-    error_hash["status"] = e.status.exitstatus
+    error_hash["status"] = if e.status.is_a?(Process::Status)
+      {
+        exitstatus: e.status.exitstatus,
+        termsig:    e.status.termsig,
+      }
+    else
+      e.status
+    end
     error_hash["output"] = e.output
   end
 

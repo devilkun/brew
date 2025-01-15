@@ -1,18 +1,19 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 module Utils
   module Bottles
     class << self
-      undef tag
+      module MacOSOverride
+        sig { params(tag: T.nilable(T.any(Symbol, Tag))).returns(Tag) }
+        def tag(tag = nil)
+          return Tag.new(system: MacOS.version.to_sym, arch: Hardware::CPU.arch) if tag.nil?
 
-      def tag
-        if Hardware::CPU.intel?
-          MacOS.version.to_sym
-        else
-          "#{Hardware::CPU.arch}_#{MacOS.version.to_sym}".to_sym
+          super
         end
       end
+
+      prepend MacOSOverride
     end
 
     class Collector
@@ -20,10 +21,13 @@ module Utils
 
       alias generic_find_matching_tag find_matching_tag
 
-      def find_matching_tag(tag)
+      sig { params(tag: Utils::Bottles::Tag, no_older_versions: T::Boolean).returns(T.nilable(Utils::Bottles::Tag)) }
+      def find_matching_tag(tag, no_older_versions: false)
         # Used primarily by developers testing beta macOS releases.
-        if OS::Mac.prerelease? && Homebrew::EnvConfig.developer? &&
-           Homebrew::EnvConfig.skip_or_later_bottles?
+        if no_older_versions ||
+           (OS::Mac.version.prerelease? &&
+            Homebrew::EnvConfig.developer? &&
+            Homebrew::EnvConfig.skip_or_later_bottles?)
           generic_find_matching_tag(tag)
         else
           generic_find_matching_tag(tag) ||
@@ -32,21 +36,21 @@ module Utils
       end
 
       # Find a bottle built for a previous version of macOS.
+      sig { params(tag: Utils::Bottles::Tag).returns(T.nilable(Utils::Bottles::Tag)) }
       def find_older_compatible_tag(tag)
         tag_version = begin
-          MacOS::Version.from_symbol(tag)
-        rescue MacOSVersionError
+          tag.to_macos_version
+        rescue MacOSVersion::Error
           nil
         end
 
         return if tag_version.blank?
 
-        keys.find do |key|
-          key_version = MacOS::Version.from_symbol(key)
-          next if key_version.arch != tag_version.arch
+        tags.find do |candidate|
+          next if candidate.arch != tag.arch
 
-          key_version <= tag_version
-        rescue MacOSVersionError
+          candidate.to_macos_version <= tag_version
+        rescue MacOSVersion::Error
           false
         end
       end

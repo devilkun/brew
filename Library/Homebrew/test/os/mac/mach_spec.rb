@@ -1,7 +1,6 @@
-# typed: false
 # frozen_string_literal: true
 
-describe "Mach-O" do
+RSpec.describe MachOShim do
   describe "Pathname tests" do
     specify "fat dylib" do
       pn = dylib_path("fat")
@@ -106,26 +105,6 @@ describe "Mach-O" do
       expect(pn).not_to be_text_executable
       expect(pn).not_to be_mach_o_bundle
       expect(pn.arch).to eq(:dunno)
-    end
-  end
-
-  describe ArchitectureListExtension do
-    let(:archs) { [:i386, :x86_64, :ppc7400, :ppc64].extend(described_class) }
-
-    specify "universal checks" do
-      expect(archs).to be_universal
-
-      non_universal = [:i386].extend(described_class)
-      expect(non_universal).not_to be_universal
-
-      intel_only = [:i386, :x86_64].extend(described_class)
-      expect(intel_only).to be_universal
-    end
-
-    specify "architecture flags" do
-      pn = dylib_path("fat")
-      expect(pn.archs).to be_universal
-      expect(pn.archs.as_arch_flags).to eq("-arch x86_64 -arch i386")
     end
   end
 

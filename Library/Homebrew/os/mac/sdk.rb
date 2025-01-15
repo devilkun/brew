@@ -1,16 +1,25 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
-require "os/mac/version"
+require "system_command"
 
 module OS
   module Mac
     # Class representing a macOS SDK.
-    #
-    # @api private
     class SDK
-      attr_reader :version, :path, :source
+      # 11.x SDKs are explicitly excluded - we want the MacOSX11.sdk symlink instead.
+      VERSIONED_SDK_REGEX = /MacOSX(10\.\d+|\d+)\.sdk$/
 
+      sig { returns(MacOSVersion) }
+      attr_reader :version
+
+      sig { returns(Pathname) }
+      attr_reader :path
+
+      sig { returns(Symbol) }
+      attr_reader :source
+
+      sig { params(version: MacOSVersion, path: T.any(String, Pathname), source: Symbol).void }
       def initialize(version, path, source)
         @version = version
         @path = Pathname.new(path)
@@ -19,28 +28,59 @@ module OS
     end
 
     # Base class for SDK locators.
-    #
-    # @api private
     class BaseSDKLocator
+      extend T::Helpers
+      include SystemCommand::Mixin
+
+      abstract!
+
       class NoSDKError < StandardError; end
 
-      def sdk_for(v)
-        path = sdk_paths[v]
-        raise NoSDKError if path.nil?
+      sig { params(version: MacOSVersion).returns(SDK) }
+      def sdk_for(version)
+        sdk = all_sdks.find { |s| s.version == version }
+        raise NoSDKError if sdk.nil?
 
-        SDK.new v, path, source
+        sdk
       end
 
+      sig { returns(T::Array[SDK]) }
       def all_sdks
-        sdk_paths.map { |v, p| SDK.new v, p, source }
+        return @all_sdks if @all_sdks
+
+        @all_sdks = []
+
+        # Bail out if there is no SDK prefix at all
+        return @all_sdks unless File.directory? sdk_prefix
+
+        found_versions = Set.new
+
+        Dir["#{sdk_prefix}/MacOSX*.sdk"].each do |sdk_path|
+          next unless sdk_path.match?(SDK::VERSIONED_SDK_REGEX)
+
+          version = read_sdk_version(Pathname.new(sdk_path))
+          next if version.nil?
+
+          @all_sdks << SDK.new(version, sdk_path, source)
+          found_versions << version
+        end
+
+        # Use unversioned SDK only if we don't have one matching that version.
+        sdk_path = Pathname.new("#{sdk_prefix}/MacOSX.sdk")
+        if (version = read_sdk_version(sdk_path)) && found_versions.exclude?(version)
+          @all_sdks << SDK.new(version, sdk_path, source)
+        end
+
+        @all_sdks
       end
 
-      def sdk_if_applicable(v = nil)
+      sig { params(version: T.nilable(MacOSVersion)).returns(T.nilable(SDK)) }
+      def sdk_if_applicable(version = nil)
         sdk = begin
-          if v.blank?
+          if version.blank?
             sdk_for OS::Mac.version
           else
-            sdk_for v
+            sdk_for version
           end
         rescue NoSDKError
           latest_sdk
@@ -49,81 +89,69 @@ module OS
 
         # On OSs lower than 11, whenever the major versions don't match,
         # only return an SDK older than the OS version if it was specifically requested
-        return if v.blank? && sdk.version < OS::Mac.version
+        return if version.blank? && sdk.version < OS::Mac.version
 
         sdk
       end
 
-      def source
-        nil
-      end
+      sig { abstract.returns(Symbol) }
+      def source; end
 
       private
 
-      def sdk_prefix
-        ""
-      end
+      sig { abstract.returns(String) }
+      def sdk_prefix; end
 
-      def sdk_paths
-        @sdk_paths ||= begin
-          # Bail out if there is no SDK prefix at all
-          if File.directory? sdk_prefix
-            paths = {}
-
-            Dir[File.join(sdk_prefix, "MacOSX*.sdk")].each do |sdk_path|
-              version = sdk_path[/MacOSX(\d+\.\d+)u?\.sdk$/, 1]
-              paths[OS::Mac::Version.new(version)] = sdk_path if version.present?
-            end
-
-            # Use unversioned SDK path on Big Sur to avoid issues such as:
-            # https://github.com/Homebrew/homebrew-core/issues/67075
-            # This creates an entry in `paths` whose key is the OS major version
-            sdk_path = Pathname.new("#{sdk_prefix}/MacOSX.sdk")
-            sdk_settings = sdk_path/"SDKSettings.json"
-            if sdk_settings.exist? &&
-               (sdk_settings_string = sdk_settings.read.presence) &&
-               (sdk_settings_json = JSON.parse(sdk_settings_string).presence) &&
-               (version_string = sdk_settings_json.fetch("Version", nil).presence) &&
-               (version = version_string[/(\d+)\./, 1].presence)
-              paths[OS::Mac::Version.new(version)] = sdk_path
-            end
-
-            paths
-          else
-            {}
-          end
-        end
-      end
-
-      # NOTE: This returns a versioned SDK path, even on Big Sur
+      sig { returns(T.nilable(SDK)) }
       def latest_sdk
-        return if sdk_paths.empty?
+        all_sdks.max_by(&:version)
+      end
 
-        v, path = sdk_paths.max { |(v1, _), (v2, _)| v1 <=> v2 }
-        SDK.new v, path, source
+      sig { params(sdk_path: Pathname).returns(T.nilable(MacOSVersion)) }
+      def read_sdk_version(sdk_path)
+        sdk_settings = sdk_path/"SDKSettings.json"
+        sdk_settings_string = sdk_settings.read if sdk_settings.exist?
+
+        # Pre-10.14 SDKs
+        sdk_settings = sdk_path/"SDKSettings.plist"
+        if sdk_settings_string.blank? && sdk_settings.exist?
+          result = system_command("plutil", args: ["-convert", "json", "-o", "-", sdk_settings])
+          sdk_settings_string = result.stdout if result.success?
+        end
+
+        return if sdk_settings_string.blank?
+
+        sdk_settings_json = JSON.parse(sdk_settings_string)
+        return if sdk_settings_json.blank?
+
+        version_string = sdk_settings_json.fetch("Version", nil)
+        return if version_string.blank?
+
+        begin
+          MacOSVersion.new(version_string).strip_patch
+        rescue MacOSVersion::Error
+          nil
+        end
       end
     end
     private_constant :BaseSDKLocator
 
     # Helper class for locating the Xcode SDK.
-    #
-    # @api private
     class XcodeSDKLocator < BaseSDKLocator
-      extend T::Sig
-
-      sig { returns(Symbol) }
+      sig { override.returns(Symbol) }
       def source
         :xcode
       end
 
       private
 
+      sig { override.returns(String) }
       def sdk_prefix
         @sdk_prefix ||= begin
           # Xcode.prefix is pretty smart, so let's look inside to find the sdk
           sdk_prefix = "#{Xcode.prefix}/Platforms/MacOSX.platform/Developer/SDKs"
           # Finally query Xcode itself (this is slow, so check it last)
-          sdk_platform_path = Utils.popen_read(DevelopmentTools.locate("xcrun"), "--show-sdk-platform-path").chomp
+          sdk_platform_path = Utils.popen_read(::DevelopmentTools.locate("xcrun"), "--show-sdk-platform-path").chomp
           sdk_prefix = File.join(sdk_platform_path, "Developer", "SDKs") unless File.directory? sdk_prefix
 
           sdk_prefix
@@ -132,12 +160,8 @@ module OS
     end
 
     # Helper class for locating the macOS Command Line Tools SDK.
-    #
-    # @api private
     class CLTSDKLocator < BaseSDKLocator
-      extend T::Sig
-
-      sig { returns(Symbol) }
+      sig { override.returns(Symbol) }
       def source
         :clt
       end
@@ -149,15 +173,14 @@ module OS
       # using that.
       # As of Xcode 10, the Unix-style headers are installed via a
       # separate package, so we can't rely on their being present.
-      # This will only look up SDKs on Xcode 10 or newer, and still
-      # return nil SDKs for Xcode 9 and older.
+      # This will only look up SDKs on Xcode 10 or newer and still
+      # return `nil` SDKs for Xcode 9 and older.
+      sig { override.returns(String) }
       def sdk_prefix
-        @sdk_prefix ||= begin
-          if CLT.provides_sdk?
-            "#{CLT::PKG_PATH}/SDKs"
-          else
-            ""
-          end
+        @sdk_prefix ||= if CLT.provides_sdk?
+          "#{CLT::PKG_PATH}/SDKs"
+        else
+          ""
         end
       end
     end

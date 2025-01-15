@@ -8,14 +8,15 @@ cask "with-uninstall-script-app" do
   app "MyFancyApp/MyFancyApp.app"
 
   postflight do
-    IO.write "#{appdir}/MyFancyApp.app/uninstall.sh", <<~SH
+    File.write "#{appdir}/MyFancyApp.app/uninstall.sh", <<~SH
       #!/bin/sh
       /bin/rm -r "#{appdir}/MyFancyApp.app"
     SH
   end
 
   uninstall script: {
-    executable: "#{appdir}/MyFancyApp.app/uninstall.sh",
-    sudo:       false,
+    executable:   "#{appdir}/MyFancyApp.app/uninstall.sh",
+    sudo:         false,
+    sudo_as_root: false,
   }
 end

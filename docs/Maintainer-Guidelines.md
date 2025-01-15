@@ -1,169 +1,76 @@
 # Maintainer Guidelines
 
-**This guide is for maintainers.** These special people have **write
-access** to Homebrew’s repository and help merge the contributions of
-others. You may find what is written here interesting, but it’s
-definitely not a beginner’s guide.
+**This guide is for maintainers.** These special people have **write access** to Homebrew’s repository and help merge the contributions of others. You may find what is written here interesting, but it’s definitely not a beginner’s guide.
 
-Maybe you were looking for the [Formula Cookbook](Formula-Cookbook.md)?
+Maybe you were looking for the [Formula Cookbook](Formula-Cookbook.md) or [Cask Cookbook](Cask-Cookbook.md)?
 
-This document is current practice. If you wish to change or discuss any of the below: open a PR to suggest a change.
+## Overview
+
+All Homebrew maintainers are encouraged to contribute to all parts of the project, but there are four main teams that maintainers tend to be a part of:
+
+- `brew` maintainers: this team maintains the [`Homebrew/brew`](https://github.com/Homebrew/brew) repository. See the [Homebrew/brew Maintainer Guide](Homebrew-brew-Maintainer-Guide.md) for more details about being a `brew` maintainer.
+- Core maintainers: this team maintains the [`Homebrew/homebrew-core`](https://github.com/Homebrew/homebrew-core) repository. See the [Homebrew/homebrew-core Maintainer Guide](Homebrew-homebrew-core-Maintainer-Guide.md) for more details about being a core maintainer.
+- Linux maintainers: this team maintains the [`Homebrew/homebrew-core`](https://github.com/Homebrew/homebrew-core) repository on Linux.
+- Cask maintainers: this team maintains the [`Homebrew/homebrew-cask`](https://github.com/Homebrew/homebrew-cask) repository. See the [Homebrew/homebrew-cask Maintainer Guide](Homebrew-homebrew-cask-Maintainer-Guide.md) for more details about being a cask maintainer.
+
+These documents are meant to serve as guiding principles. As a maintainer, you can make a call to either request changes from a contributor or help them out based on their comfort and previous contributions. Remember, as a team we [Prioritise Maintainers Over Users](Maintainers-Avoiding-Burnout.md) to avoid burnout. If you wish to change or discuss any of the guidelines: open a PR to suggest a change.
+
+## Reviewing PRs
+
+When reviewing a PR, use "approve", "approve with comments", "comment" or "request changes" when submitting based on the following guidelines:
+
+- ✅ Approve: if you feel that the PR looks good as is, you can ✅ approve it as-is.
+- ✅ Approve with comments: if you have a few questions or comments to be answered and the PR can be merged after they are addressed, you can ✅ approve with comments.
+  - Please trust that other maintainers will not merge the PR until the comments are addressed rather than e.g. making them wait another 24h to get another review.
+  - If auto-merge is enabled: don't worry, PRs need to have comments manually resolved before they are automatically merged.
+    Please feel free to ✅ approve or ✅ approve with comments even if others have just commented and it will not be merged until the author has resolved the comments.
+- 🗣️ Comment: if you need to ask questions before you can provide a ✅ approval but are fine with someone else providing a ✅ approval before you, provide a comment review and ask questions.
+- 🚫 Request changes: a last resort.
+  - When reviewing non-maintainers' PRs: this means "these changes must be made before this PR should be merged by anyone".
+    Other maintainers can dismiss this review when these changes have been made.
+  - When reviewing others maintainers' PRs: this is to be avoided whenever possible.
+    - Save it for "if this PR is merged before I personally have had a chance to ✅ approve it: it seems very likely to cause user-visible problems".
+    - It may be used by the Project Leader for "this functionality is not acceptable in Homebrew".
+      In that case: additional code changes should be held off until there's agreement that the functionality is acceptable.
+
+Relatedly:
+
+- The default option should be to ✅ approve, with or without comments.
+- Whenever possible, you should try to use the GitHub "suggestion" feature to edit the code how you would like it to be.
+  If you don't have time or can't be bothered: you probably don't have the time to review the PR properly.
+- We're a globally distributed team and this helps us move faster.
+- The PR review process is primarily a security measure, not a way to get consensus on the perfect code style before merging.
+- It is easy to make changes on a PR after approval, make follow-up PRs to address comments or revert PRs before a tag.
+- It is (nearly) impossible to merge a PR without approval.
+- Using `gh pr checkout <URL>` is a super easy way to check out a PR branch using the GitHub CLI.
 
 ## Mission
 
 Homebrew aims to be the missing package manager for macOS (and Linux). Its primary goal is to be useful to as many people as possible, while remaining maintainable to a professional, high standard by a small group of volunteers. Where possible and sensible, it should seek to use features of macOS to blend in with the macOS and Apple ecosystems. On Linux and Windows, it should seek to be as self-contained as possible.
 
-## Quick checklist
-
-This is all that really matters:
-
-- Ensure the name seems reasonable.
-- Add aliases.
-- Ensure it uses `keg_only :provided_by_macos` if it already comes with macOS.
-- Ensure it is not a library that can be installed with
-  [gem](https://en.wikipedia.org/wiki/RubyGems),
-  [cpan](https://en.wikipedia.org/wiki/Cpan) or
-  [pip](https://pip.pypa.io/en/stable/).
-- Ensure that any dependencies are accurate and minimal. We don't need to
-  support every possible optional feature for the software.
-- When bottles aren't required or affected, use the GitHub squash & merge workflow for a single-formula PR or rebase & merge workflow for a multiple-formulae PR. See [below](#how-to-merge-without-bottles) for more details.
-- Use `brew pr-publish` or `brew pr-pull` otherwise, which adds messages to auto-close pull requests and pull bottles built by the Brew Test Bot.
-- Thank people for contributing.
-
-Checking dependencies is important, because they will probably stick around
-forever. Nobody really checks if they are necessary or not. Use the
-`:optional` and `:recommended` modifiers as appropriate.
-
-Depend on as little stuff as possible. Disable X11 functionality if possible.
-For example, we build Wireshark, but not the heavy GUI.
-
-For [some formulae](https://github.com/Homebrew/homebrew-core/search?q=%22homebrew%2Fmirror%22&unscoped_q=%22homebrew%2Fmirror%22),
-we mirror the tarballs to our own BinTray automatically as part of the
-bottle publish CI run.
-
-Homebrew is about Unix software. Stuff that builds to an `.app` should
-be in Homebrew Cask instead.
-
-### Naming
-
-The name is the strictest item, because avoiding a later name change is
-desirable.
-
-Choose a name that’s the most common name for the project.
-For example, we initially chose `objective-caml` but we should have chosen `ocaml`.
-Choose what people say to each other when talking about the project.
-
-Add other names as aliases as symlinks in `Aliases` in the tap root. Ensure the
-name referenced on the homepage is one of these, as it may be different and have
-underscores and hyphens and so on.
-
-We now accept versioned formulae as long as they [meet the requirements](Versions.md).
-
-### Merging, rebasing, cherry-picking
-
-Merging should be done in the `Homebrew/brew` repository to preserve history and GPG commit signing.
-
-PRs modifying formulae that don't need bottles or making changes that don't
-require new bottles to be pulled should use GitHub's squash & merge or rebase & merge workflows.
-See the [table below](#how-to-merge-without-bottles) for more details.
-
-Otherwise, you should use `brew pr-pull` (or `rebase`/`cherry-pick` contributions).
-
-Don’t `rebase` until you finally `push`. Once `master` is pushed, you can’t
-`rebase`: **you’re a maintainer now!**
-
-Cherry-picking changes the date of the commit, which kind of sucks.
-
-Don’t `merge` unclean branches. So if someone is still learning `git` and
-their branch is filled with nonsensical merges, then `rebase` and squash
-the commits. Our main branch history should be useful to other people,
-not confusing.
-
-Here’s a flowchart for managing a PR which is ready to merge:
-
-![Flowchart for managing pull requests](assets/img/docs/managing-pull-requests.drawio.svg)
-
-#### How to merge without bottles
-
-Here are guidelines about when to use squash & merge versus rebase & merge. These options should only be used with PRs where bottles are not needed or affected.
-
-| | PR modified a single formula | PR modifies multiple formulae |
-|---|---|---|
-| **Commits look good** | rebase & merge _or_ squash & merge | rebase & merge |
-| **Commits need work** | squash & merge | manually merge using the command line |
-
-### Testing
-
-We need to at least check that it builds. Use the [Brew Test Bot](Brew-Test-Bot.md) for this.
-
-Verify the formula works if possible. If you can’t tell (e.g. if it’s a
-library) trust the original contributor, it worked for them, so chances are it
-is fine. If you aren’t an expert in the tool in question, you can’t really
-gauge if the formula installed the program correctly. At some point an expert
-will come along, cry blue murder that it doesn’t work, and fix it. This is how
-open source works. Ideally, request a `test do` block to test that
-functionality is consistently available.
-
-If the formula uses a repository, then the `url` parameter should have a
-tag or revision. `url`s have versions and are stable (not yet
-implemented!).
-
-Don't merge any formula updates with failing `brew test`s. If a `test do` block
-is failing it needs to be fixed. This may involve replacing more involved tests
-with those that are more reliable. This is fine: false positives are better than
-false negatives as we don't want to teach maintainers to merge red PRs. If the
-test failure is believed to be due to a bug in Homebrew/brew or the CI system,
-that bug must be fixed, or worked around in the formula to yield a passing test,
-before the PR can be merged.
-
 ## Common “gotchas”
 
 1. [Ensure you have set your username and email address properly](https://help.github.com/articles/setting-your-email-in-git/)
 2. Sign off cherry-picks if you amended them (use `git -s`)
-3. If the commit fixes a bug, use “Fixes \#104” syntax to close the bug report and link to the commit
-
-### Duplicates
-
-We now accept stuff that comes with macOS as long as it uses `keg_only :provided_by_macos` to be keg-only by default.
+3. If your commit fixes a bug, use [issue linking syntax](https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue) (e.g. “Fixes \#104”) to close the bug report and link back to the commit
 
 ### Add comments
 
-It may be enough to refer to an issue ticket, but make sure changes are clear so that
-if you came to them unaware of the surrounding issues they would make sense
-to you. Many times on other projects I’ve seen code removed because the
-new guy didn’t know why it was there. Regressions suck.
+It may be enough to refer to an issue ticket, but make sure changes and context are clear enough so that anyone reading them for the first time can make sense of them. You don't want code you wrote to be removed because the someone new doesn’t understand why it’s there. Regressions suck.
+
+This also applies to issue and PR bodies. Be as explicit as possible. If a pull request is part of a larger initiative: link to a relevant tracking issue. If there isn't a tracking issue yet: create one to improve communication and get consensus.
 
 ### Don’t allow bloated diffs
 
-Amend a cherry-pick to remove commits that are only changes in
-whitespace. They are not acceptable because our history is important and
-`git blame` should be useful.
+Amend a cherry-pick to remove commits that are only changes in whitespace. They are not acceptable because our history is important and `git blame` should be useful.
 
-Whitespace corrections (to Ruby standard etc.) are allowed (in fact this
-is a good opportunity to do it) provided the line itself has some kind
-of modification that is not whitespace in it. But be careful about
-making changes to inline patches—make sure they still apply.
-
-### Adding or updating formulae
-
-Only one maintainer is necessary to approve and merge the addition of a new or updated formula which passes CI. However, if the formula addition or update proves controversial the maintainer who adds it will be expected to answer requests and fix problems that arise with it in future.
-
-### Removing formulae
-
-Formulae that:
-
-- work on at least 2/3 of our supported macOS versions in the default Homebrew prefix
-- do not require patches rejected by upstream to work
-- do not have known security vulnerabilities or CVEs for the version we package
-- are shown to be still installed by users in our analytics with a `BuildError` rate of <25%
-
-should not be removed from Homebrew. The exception to this rule are [versioned formulae](Versions.md) for which there are higher standards of usage and a maximum number of versions for a given formula.
+Whitespace corrections (to Ruby standard etc.) are allowed (in fact this is a good opportunity to do it) provided the line itself has some kind of modification that is more than just whitespace changes. But be careful about making changes to inline patches—make sure they still apply.
 
 ### Closing issues/PRs
 
-Maintainers (including the lead maintainer) should not close issues or pull requests (note a merge is not considered a close in this case) opened by other maintainers unless they are stale (i.e. have seen no updates for 28 days) in which case they can be closed by any maintainer. Any maintainer is encouraged to reopen a closed issue when they wish to do additional work on the issue.
+Maintainers (including the project leader) should not close issues or pull requests (note a merge is not considered a close in this case) opened by other maintainers unless they are stale in which case they can be closed by any maintainer. Any maintainer is encouraged to reopen a closed issue when they wish to do additional work on the issue.
 
-Any maintainer can merge any PR they have carefully reviewed and is passing CI that has been opened by any other maintainer. If you do not wish to have other maintainers merge your PRs: please use the `do not merge` label to indicate that until you're ready to merge it yourself.
+Any maintainer can merge any PR they have carefully reviewed and is passing CI that has been opened by any other maintainer. If you do not wish to have other maintainers merge your PRs: please use the draft pull request status to indicate that until you're ready to merge it yourself.
 
 ## Reverting PRs
 
@@ -171,15 +78,15 @@ Any maintainer can revert a PR created by another maintainer after a user submit
 
 ### Give time for other maintainers to review
 
-PRs that are an "enhancement" to existing functionality i.e. not a fix to an open user issue/discussion, not a version bump, not a security fix, not a fix for CI failure, a usability improvement, a new feature, refactoring etc. should wait 24h Monday - Friday before being merged. For example,
+PRs that are an "enhancement" to existing functionality, i.e. not a fix to an open user issue/discussion, not a version bump, not a security fix, not a fix for CI failure, a usability improvement, a new feature, refactoring etc. should wait 24h Monday to Friday before being merged. For example,
 
 - a new feature PR submitted at 5pm on Thursday should wait until 5pm on Friday before it is merged
 - a usability fix PR submitted at 5pm on Friday should wait until 5pm on Monday before it is merged
 - a user-reported issue fix PR can be merged immediately after CI is green
 
-If a maintainer is on holiday/vacation/sick during this time and leaves comments after they are back: please treat post-merge PR comments and feedback as you would left within the time period and follow-up with another PR to address their requests (if agreed).
+If a maintainer is on holiday/vacation/sick during this time and leaves comments after they are back: please treat post-merge PR comments and feedback as you would if left within the time period and follow-up with another PR to address their requests (if agreed).
 
-The vast majority of Homebrew/homebrew-core PRs are bug fixes or version bumps so can be self-merged once CI has completed.
+The vast majority of `Homebrew/homebrew-core` PRs are bug fixes or version bumps which can be self-merged once CI has completed.
 
 ## Communication
 
@@ -193,6 +100,6 @@ All communication should ideally occur in public on GitHub. Where this is not po
 
 This makes it easier for other maintainers, contributors and users to follow along with what we're doing (and, more importantly, why we're doing it) and means that decisions have a linkable URL.
 
-All maintainers (and lead maintainer) communication through any medium is bound by [Homebrew's Code of Conduct](https://github.com/Homebrew/.github/blob/HEAD/CODE_OF_CONDUCT.md#code-of-conduct). Abusive behaviour towards other maintainers, contributors or users will not be tolerated; the maintainer will be given a warning and if their behaviour continues they will be removed as a maintainer.
+All maintainers (and project leader) communication through any medium is bound by [Homebrew's Code of Conduct](https://github.com/Homebrew/.github/blob/HEAD/CODE_OF_CONDUCT.md#code-of-conduct). Abusive behaviour towards other maintainers, contributors or users will not be tolerated; the maintainer will be given a warning and if their behaviour continues they will be removed as a maintainer.
 
 Maintainers should feel free to pleasantly disagree with the work and decisions of other maintainers. Healthy, friendly, technical disagreement between maintainers is actively encouraged and should occur in public on the issue tracker to make the project better. Interpersonal issues should be handled privately in Slack, ideally with moderation. If work or decisions are insufficiently documented or explained any maintainer or contributor should feel free to ask for clarification. No maintainer may ever justify a decision with e.g. "because I say so" or "it was I who did X" alone. Off-topic discussions on the issue tracker, [bike-shedding](https://en.wikipedia.org/wiki/Law_of_triviality) and personal attacks are forbidden.
