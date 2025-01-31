@@ -2,9 +2,8 @@
 # frozen_string_literal: true
 
 class BottleSpecification
-  extend T::Sig
-  sig { returns(T::Boolean) }
-  def skip_relocation?
+  sig { params(tag: Utils::Bottles::Tag).returns(T::Boolean) }
+  def skip_relocation?(tag: Utils::Bottles.tag)
     false
   end
 end

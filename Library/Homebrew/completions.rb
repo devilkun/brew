@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "utils/link"
@@ -7,15 +7,17 @@ require "erb"
 
 module Homebrew
   # Helper functions for generating shell completions.
-  #
-  # @api private
   module Completions
-    extend T::Sig
+    Variables = Struct.new(
+      :aliases,
+      :builtin_command_descriptions,
+      :completion_functions,
+      :function_mappings,
+      keyword_init: true,
+    )
 
-    module_function
-
-    COMPLETIONS_DIR = (HOMEBREW_REPOSITORY/"completions").freeze
-    TEMPLATE_DIR = (HOMEBREW_LIBRARY_PATH/"completions").freeze
+    COMPLETIONS_DIR = T.let((HOMEBREW_REPOSITORY/"completions").freeze, Pathname)
+    TEMPLATE_DIR = T.let((HOMEBREW_LIBRARY_PATH/"completions").freeze, Pathname)
 
     SHELLS = %w[bash fish zsh].freeze
     COMPLETIONS_EXCLUSION_LIST = %w[
@@ -24,7 +26,7 @@ module Homebrew
       update-report
     ].freeze
 
-    BASH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING = {
+    BASH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING = T.let({
       formula:           "__brew_complete_formulae",
       installed_formula: "__brew_complete_installed_formulae",
       outdated_formula:  "__brew_complete_outdated_formulae",
@@ -34,11 +36,11 @@ module Homebrew
       tap:               "__brew_complete_tapped",
       installed_tap:     "__brew_complete_tapped",
       command:           "__brew_complete_commands",
-      diagnostic_check:  '__brewcomp "$(brew doctor --list-checks)"',
+      diagnostic_check:  '__brewcomp "${__HOMEBREW_DOCTOR_CHECKS=$(brew doctor --list-checks)}"',
       file:              "__brew_complete_files",
-    }.freeze
+    }.freeze, T::Hash[Symbol, String])
 
-    ZSH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING = {
+    ZSH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING = T.let({
       formula:           "__brew_formulae",
       installed_formula: "__brew_installed_formulae",
       outdated_formula:  "__brew_outdated_formulae",
@@ -50,9 +52,9 @@ module Homebrew
       command:           "__brew_commands",
       diagnostic_check:  "__brew_diagnostic_checks",
       file:              "__brew_formulae_or_ruby_files",
-    }.freeze
+    }.freeze, T::Hash[Symbol, String])
 
-    FISH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING = {
+    FISH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING = T.let({
       formula:           "__fish_brew_suggest_formulae_all",
       installed_formula: "__fish_brew_suggest_formulae_installed",
       outdated_formula:  "__fish_brew_suggest_formulae_outdated",
@@ -63,20 +65,20 @@ module Homebrew
       installed_tap:     "__fish_brew_suggest_taps_installed",
       command:           "__fish_brew_suggest_commands",
       diagnostic_check:  "__fish_brew_suggest_diagnostic_checks",
-    }.freeze
+    }.freeze, T::Hash[Symbol, String])
 
     sig { void }
-    def link!
+    def self.link!
       Settings.write :linkcompletions, true
-      Tap.each do |tap|
+      Tap.installed.each do |tap|
         Utils::Link.link_completions tap.path, "brew completions link"
       end
     end
 
     sig { void }
-    def unlink!
+    def self.unlink!
       Settings.write :linkcompletions, false
-      Tap.each do |tap|
+      Tap.installed.each do |tap|
         next if tap.official?
 
         Utils::Link.unlink_completions tap.path
@@ -84,13 +86,13 @@ module Homebrew
     end
 
     sig { returns(T::Boolean) }
-    def link_completions?
+    def self.link_completions?
       Settings.read(:linkcompletions) == "true"
     end
 
     sig { returns(T::Boolean) }
-    def completions_to_link?
-      Tap.each do |tap|
+    def self.completions_to_link?
+      Tap.installed.each do |tap|
         next if tap.official?
 
         SHELLS.each do |shell|
@@ -102,13 +104,13 @@ module Homebrew
     end
 
     sig { void }
-    def show_completions_message_if_needed
+    def self.show_completions_message_if_needed
       return if Settings.read(:completionsmessageshown) == "true"
       return unless completions_to_link?
 
       ohai "Homebrew completions for external commands are unlinked by default!"
       puts <<~EOS
-        To opt-in to automatically linking external tap shell competion files, run:
+        To opt-in to automatically linking external tap shell completion files, run:
           brew completions link
         Then, follow the directions at #{Formatter.url("https://docs.brew.sh/Shell-Completion")}
       EOS
@@ -117,7 +119,7 @@ module Homebrew
     end
 
     sig { void }
-    def update_shell_completions!
+    def self.update_shell_completions!
       commands = Commands.commands(external: false, aliases: true).sort
 
       puts "Writing completions to #{COMPLETIONS_DIR}"
@@ -128,14 +130,12 @@ module Homebrew
     end
 
     sig { params(command: String).returns(T::Boolean) }
-    def command_gets_completions?(command)
-      return false if command.start_with? "cask " # TODO: (2.8) remove when `brew cask` commands are removed
-
+    def self.command_gets_completions?(command)
       command_options(command).any?
     end
 
     sig { params(description: String, fish: T::Boolean).returns(String) }
-    def format_description(description, fish: false)
+    def self.format_description(description, fish: false)
       description = if fish
         description.gsub("'", "\\\\'")
       else
@@ -145,7 +145,7 @@ module Homebrew
     end
 
     sig { params(command: String).returns(T::Hash[String, String]) }
-    def command_options(command)
+    def self.command_options(command)
       options = {}
       Commands.command_options(command)&.each do |option|
         next if option.blank?
@@ -153,7 +153,7 @@ module Homebrew
         name = option.first
         desc = option.second
         if name.start_with? "--[no-]"
-          options[name.remove("[no-]")] = desc
+          options[name.gsub("[no-]", "")] = desc
           options[name.sub("[no-]", "no-")] = desc
         else
           options[name] = desc
@@ -163,11 +163,11 @@ module Homebrew
     end
 
     sig { params(command: String).returns(T.nilable(String)) }
-    def generate_bash_subcommand_completion(command)
+    def self.generate_bash_subcommand_completion(command)
       return unless command_gets_completions? command
 
       named_completion_string = ""
-      if types = Commands.named_args_type(command)
+      if (types = Commands.named_args_type(command))
         named_args_strings, named_args_types = types.partition { |type| type.is_a? String }
 
         named_args_types.each do |type|
@@ -182,123 +182,161 @@ module Homebrew
       <<~COMPLETION
         _brew_#{Commands.method_name command}() {
           local cur="${COMP_WORDS[COMP_CWORD]}"
-          case "$cur" in
+          case "${cur}" in
             -*)
               __brewcomp "
               #{command_options(command).keys.sort.join("\n      ")}
               "
               return
               ;;
+            *) ;;
           esac#{named_completion_string}
         }
       COMPLETION
     end
 
     sig { params(commands: T::Array[String]).returns(String) }
-    def generate_bash_completion_file(commands)
-      variables = OpenStruct.new
+    def self.generate_bash_completion_file(commands)
+      variables = Variables.new(
+        completion_functions: commands.filter_map do |command|
+          generate_bash_subcommand_completion command
+        end,
+        function_mappings:    commands.filter_map do |command|
+          next unless command_gets_completions? command
 
-      variables[:completion_functions] = commands.map do |command|
-        generate_bash_subcommand_completion command
-      end.compact
-
-      variables[:function_mappings] = commands.map do |command|
-        next unless command_gets_completions? command
-
-        "#{command}) _brew_#{Commands.method_name command} ;;"
-      end.compact
+          "#{command}) _brew_#{Commands.method_name command} ;;"
+        end,
+      )
 
       ERB.new((TEMPLATE_DIR/"bash.erb").read, trim_mode: ">").result(variables.instance_eval { binding })
     end
 
     sig { params(command: String).returns(T.nilable(String)) }
-    def generate_zsh_subcommand_completion(command)
+    def self.generate_zsh_subcommand_completion(command)
       return unless command_gets_completions? command
 
-      options = command_options(command).sort.map do |opt, desc|
-        next opt if desc.blank?
+      options = command_options(command)
 
-        conflicts = generate_zsh_option_exclusions(command, opt)
-        "#{conflicts}#{opt}[#{format_description desc}]"
-      end
-      if types = Commands.named_args_type(command)
+      args_options = []
+      if (types = Commands.named_args_type(command))
         named_args_strings, named_args_types = types.partition { |type| type.is_a? String }
 
         named_args_types.each do |type|
           next unless ZSH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING.key? type
 
-          options << "::#{type}:#{ZSH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING[type]}"
+          args_options << "- #{type}"
+          opt = "--#{type.to_s.gsub(/(installed|outdated)_/, "")}"
+          if options.key?(opt)
+            desc = options[opt]
+
+            if desc.blank?
+              args_options << opt
+            else
+              conflicts = generate_zsh_option_exclusions(command, opt)
+              args_options << "#{conflicts}#{opt}[#{format_description desc}]"
+            end
+
+            options.delete(opt)
+          end
+          args_options << "*::#{type}:#{ZSH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING[type]}"
         end
 
-        options << "::subcommand:(#{named_args_strings.join(" ")})" if named_args_strings.any?
+        if named_args_strings.any?
+          args_options << "- subcommand"
+          args_options << "*::subcommand:(#{named_args_strings.join(" ")})"
+        end
       end
+
+      options = options.sort.map do |opt, desc|
+        next opt if desc.blank?
+
+        conflicts = generate_zsh_option_exclusions(command, opt)
+        "#{conflicts}#{opt}[#{format_description desc}]"
+      end
+      options += args_options
 
       <<~COMPLETION
         # brew #{command}
         _brew_#{Commands.method_name command}() {
           _arguments \\
-            #{options.map! { |opt| "'#{opt}'" }.join(" \\\n    ")}
+            #{options.map! { |opt| opt.start_with?("- ") ? opt : "'#{opt}'" }.join(" \\\n    ")}
         }
       COMPLETION
     end
 
-    def generate_zsh_option_exclusions(command, option)
-      conflicts = Commands.option_conflicts(command, option.gsub(/^--/, ""))
+    sig { params(command: String, option: String).returns(String) }
+    def self.generate_zsh_option_exclusions(command, option)
+      conflicts = Commands.option_conflicts(command, option.gsub(/^--?/, ""))
       return "" unless conflicts.presence
 
-      "(#{conflicts.map { |conflict| "--#{conflict}" }.join(" ")})"
+      "(#{conflicts.map { |conflict| "-#{"-" if conflict.size > 1}#{conflict}" }.join(" ")})"
     end
 
     sig { params(commands: T::Array[String]).returns(String) }
-    def generate_zsh_completion_file(commands)
-      variables = OpenStruct.new
+    def self.generate_zsh_completion_file(commands)
+      variables = Variables.new(
+        aliases:                      Commands::HOMEBREW_INTERNAL_COMMAND_ALIASES.filter_map do |alias_cmd, command|
+          alias_cmd = "'#{alias_cmd}'" if alias_cmd.start_with? "-"
+          command = "'#{command}'" if command.start_with? "-"
+          "#{alias_cmd} #{command}"
+        end,
 
-      variables[:aliases] = Commands::HOMEBREW_INTERNAL_COMMAND_ALIASES.map do |alias_command, command|
-        alias_command = "'#{alias_command}'" if alias_command.start_with? "-"
-        command = "'#{command}'" if command.start_with? "-"
-        "#{alias_command} #{command}"
-      end.compact
+        builtin_command_descriptions: commands.filter_map do |command|
+          next if Commands::HOMEBREW_INTERNAL_COMMAND_ALIASES.key? command
 
-      variables[:builtin_command_descriptions] = commands.map do |command|
-        next if Commands::HOMEBREW_INTERNAL_COMMAND_ALIASES.key? command
+          description = Commands.command_description(command, short: true)
+          next if description.blank?
 
-        description = Commands.command_description(command, short: true)
-        next if description.blank?
+          description = format_description description
+          "'#{command}:#{description}'"
+        end,
 
-        description = format_description description
-        "'#{command}:#{description}'"
-      end.compact
-
-      variables[:completion_functions] = commands.map do |command|
-        generate_zsh_subcommand_completion command
-      end.compact
+        completion_functions:         commands.filter_map do |command|
+          generate_zsh_subcommand_completion command
+        end,
+      )
 
       ERB.new((TEMPLATE_DIR/"zsh.erb").read, trim_mode: ">").result(variables.instance_eval { binding })
     end
 
     sig { params(command: String).returns(T.nilable(String)) }
-    def generate_fish_subcommand_completion(command)
+    def self.generate_fish_subcommand_completion(command)
       return unless command_gets_completions? command
 
       command_description = format_description Commands.command_description(command, short: true), fish: true
-      lines = ["__fish_brew_complete_cmd '#{command}' '#{command_description}'"]
+      lines = if COMPLETIONS_EXCLUSION_LIST.include?(command)
+        []
+      else
+        ["__fish_brew_complete_cmd '#{command}' '#{command_description}'"]
+      end
 
-      options = command_options(command).sort.map do |opt, desc|
+      options = command_options(command).sort.filter_map do |opt, desc|
         arg_line = "__fish_brew_complete_arg '#{command}' -l #{opt.sub(/^-+/, "")}"
         arg_line += " -d '#{format_description desc, fish: true}'" if desc.present?
         arg_line
-      end.compact
+      end
 
       subcommands = []
       named_args = []
-      if types = Commands.named_args_type(command)
+      if (types = Commands.named_args_type(command))
         named_args_strings, named_args_types = types.partition { |type| type.is_a? String }
 
         named_args_types.each do |type|
           next unless FISH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING.key? type
 
           named_arg_function = FISH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING[type]
-          named_args << "__fish_brew_complete_arg '#{command}' -a '(#{named_arg_function})'"
+          named_arg_prefix = "__fish_brew_complete_arg '#{command}; and not __fish_seen_argument"
+
+          formula_option = command_options(command).key?("--formula")
+          cask_option = command_options(command).key?("--cask")
+
+          named_args << if formula_option && cask_option && type.to_s.end_with?("formula")
+            "#{named_arg_prefix} -l cask -l casks' -a '(#{named_arg_function})'"
+          elsif formula_option && cask_option && type.to_s.end_with?("cask")
+            "#{named_arg_prefix} -l formula -l formulae' -a '(#{named_arg_function})'"
+          else
+            "__fish_brew_complete_arg '#{command}' -a '(#{named_arg_function})'"
+          end
         end
 
         named_args_strings.each do |subcommand|
@@ -313,12 +351,12 @@ module Homebrew
     end
 
     sig { params(commands: T::Array[String]).returns(String) }
-    def generate_fish_completion_file(commands)
-      variables = OpenStruct.new
-
-      variables[:completion_functions] = commands.map do |command|
-        generate_fish_subcommand_completion command
-      end.compact
+    def self.generate_fish_completion_file(commands)
+      variables = Variables.new(
+        completion_functions: commands.filter_map do |command|
+          generate_fish_subcommand_completion command
+        end,
+      )
 
       ERB.new((TEMPLATE_DIR/"fish.erb").read, trim_mode: ">").result(variables.instance_eval { binding })
     end

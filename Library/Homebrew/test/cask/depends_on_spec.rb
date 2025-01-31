@@ -1,12 +1,13 @@
-# typed: false
 # frozen_string_literal: true
 
 # TODO: this test should be named after the corresponding class, once
 #       that class is abstracted from installer.rb
-describe "Satisfy Dependencies and Requirements", :cask do
-  subject(:install) {
+# rubocop:disable RSpec/DescribeClass
+RSpec.describe "Satisfy Dependencies and Requirements", :cask do
+  # rubocop:enable RSpec/DescribeClass
+  subject(:install) do
     Cask::Installer.new(cask).install
-  }
+  end
 
   describe "depends_on cask" do
     let(:dependency) { Cask::CaskLoader.load(cask.depends_on.cask.first) }
@@ -24,7 +25,7 @@ describe "Satisfy Dependencies and Requirements", :cask do
       it {
         expect { install }.to raise_error(
           Cask::CaskCyclicDependencyError,
-          "Cask 'with-depends-on-cask-cyclic' includes cyclic dependencies "\
+          "Cask 'with-depends-on-cask-cyclic' includes cyclic dependencies " \
           "on other Casks: with-depends-on-cask-cyclic-helper",
         )
       }
@@ -32,7 +33,7 @@ describe "Satisfy Dependencies and Requirements", :cask do
   end
 
   describe "depends_on macos" do
-    context "given an array" do
+    context "with an array" do
       let(:cask) { Cask::CaskLoader.load(cask_path("with-depends-on-macos-array")) }
 
       it "does not raise an error" do
@@ -40,7 +41,7 @@ describe "Satisfy Dependencies and Requirements", :cask do
       end
     end
 
-    context "given a comparison" do
+    context "with a comparison" do
       let(:cask) { Cask::CaskLoader.load(cask_path("with-depends-on-macos-comparison")) }
 
       it "does not raise an error" do
@@ -48,7 +49,7 @@ describe "Satisfy Dependencies and Requirements", :cask do
       end
     end
 
-    context "given a symbol" do
+    context "with a symbol" do
       let(:cask) { Cask::CaskLoader.load(cask_path("with-depends-on-macos-symbol")) }
 
       it "does not raise an error" do

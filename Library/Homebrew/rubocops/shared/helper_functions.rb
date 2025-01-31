@@ -1,13 +1,16 @@
-# typed: false
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "rubocop"
 
+require_relative "../../warnings"
+Warnings.ignore :parser_syntax do
+  require "parser/current"
+end
+
 module RuboCop
   module Cop
     # Helper functions for cops.
-    #
-    # @api private
     module HelperFunctions
       include RangeHelp
 
@@ -44,6 +47,7 @@ module RuboCop
       end
 
       # Returns the line number of the node.
+      sig { params(node: RuboCop::AST::Node).returns(Integer) }
       def line_number(node)
         node.loc.line
       end
@@ -54,7 +58,7 @@ module RuboCop
       end
 
       # Returns the string representation if node is of type str(plain) or dstr(interpolated) or const.
-      def string_content(node)
+      def string_content(node, strip_dynamic: false)
         case node.type
         when :str
           node.str_content
@@ -62,12 +66,21 @@ module RuboCop
           content = ""
           node.each_child_node(:str, :begin) do |child|
             content += if child.begin_type?
-              child.source
+              strip_dynamic ? "" : child.source
             else
               child.str_content
             end
           end
           content
+        when :send
+          if node.method?(:+) && (node.receiver.str_type? || node.receiver.dstr_type?)
+            content = string_content(node.receiver)
+            arg = node.arguments.first
+            content += string_content(arg) if arg
+            content
+          else
+            ""
+          end
         when :const
           node.const_name
         when :sym
@@ -94,7 +107,7 @@ module RuboCop
         return if node.nil?
 
         node.each_child_node(:send) do |method_node|
-          next unless method_node.method_name == method_name
+          next if method_node.method_name != method_name
 
           @offensive_node = method_node
           return method_node
@@ -104,8 +117,10 @@ module RuboCop
         nil
       end
 
-      # Sets the given node as the offending node when required in custom cops.
-      def offending_node(node)
+      # Gets/sets the given node as the offending node when required in custom cops.
+      def offending_node(node = nil)
+        return @offensive_node if node.nil?
+
         @offensive_node = node
       end
 
@@ -150,7 +165,7 @@ module RuboCop
       def find_method_with_args(node, method_name, *args)
         methods = find_every_method_call_by_name(node, method_name)
         methods.each do |method|
-          next unless parameters_passed?(method, *args)
+          next unless parameters_passed?(method, args)
           return true unless block_given?
 
           yield method
@@ -159,10 +174,19 @@ module RuboCop
 
       # Matches a method with a receiver. Yields to a block with matching method node.
       #
-      # @example to match `Formula.factory(name)`
-      #   find_instance_method_call(node, "Formula", :factory)
-      # @example to match `build.head?`
-      #   find_instance_method_call(node, :build, :head?)
+      # ### Examples
+      #
+      # Match `Formula.factory(name)`.
+      #
+      # ```ruby
+      # find_instance_method_call(node, "Formula", :factory)
+      # ```
+      #
+      # Match `build.head?`.
+      #
+      # ```ruby
+      # find_instance_method_call(node, :build, :head?)
+      # ```
       def find_instance_method_call(node, instance, method_name)
         methods = find_every_method_call_by_name(node, method_name)
         methods.each do |method|
@@ -179,8 +203,13 @@ module RuboCop
 
       # Matches receiver part of method. Yields to a block with parent node of receiver.
       #
-      # @example to match `ARGV.<whatever>()`
-      #   find_instance_call(node, "ARGV")
+      # ### Example
+      #
+      # Match `ARGV.<whatever>()`.
+      #
+      # ```ruby
+      # find_instance_call(node, "ARGV")
+      # ```
       def find_instance_call(node, name)
         node.each_descendant(:send) do |method_node|
           next if method_node.receiver.nil?
@@ -200,7 +229,7 @@ module RuboCop
         return if node.nil?
 
         node.each_descendant(:const) do |const_node|
-          next unless const_node.const_name == const_name
+          next if const_node.const_name != const_name
 
           @offensive_node = const_node
           yield const_node if block_given?
@@ -269,11 +298,11 @@ module RuboCop
         nil
       end
 
-      # Check if a method is called inside a block.
-      def method_called_in_block?(node, method_name)
-        block_body = node.children[2]
-        block_body.each_child_node(:send) do |call_node|
-          next unless call_node.method_name == method_name
+      # Check if a block method is called inside a block.
+      def block_method_called_in_block?(node, method_name)
+        node.body.each_child_node do |call_node|
+          next if !call_node.block_type? && !call_node.send_type?
+          next if call_node.method_name != method_name
 
           @offensive_node = call_node
           return true
@@ -289,7 +318,7 @@ module RuboCop
           return true
         end
         node.each_child_node(:send) do |call_node|
-          next unless call_node.method_name == method_name
+          next if call_node.method_name != method_name
 
           offending_node(call_node)
           return true
@@ -300,7 +329,7 @@ module RuboCop
       # Check if method_name is called among every descendant node of given node.
       def method_called_ever?(node, method_name)
         node.each_descendant(:send) do |call_node|
-          next unless call_node.method_name == method_name
+          next if call_node.method_name != method_name
 
           @offensive_node = call_node
           return true
@@ -342,7 +371,7 @@ module RuboCop
       # Returns true if the given parameters are present in method call
       # and sets the method call as the offending node.
       # Params can be string, symbol, array, hash, matching regex.
-      def parameters_passed?(method_node, *params)
+      def parameters_passed?(method_node, params)
         method_params = parameters(method_node)
         @offensive_node = method_node
         params.all? do |given_param|

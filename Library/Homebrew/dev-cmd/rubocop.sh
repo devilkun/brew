@@ -1,25 +1,24 @@
-#:  * `rubocop`
-#:
-#:  Installs, configures and runs Homebrew's `rubocop`.
+# Documentation defined in Library/Homebrew/dev-cmd/rubocop.rb
 
+# HOMEBREW_LIBRARY is from the user environment.
+# HOMEBREW_RUBY_PATH is set by utils/ruby.sh
+# HOMEBREW_BREW_FILE is set by extend/ENV/super.rb
+# shellcheck disable=SC2154
 homebrew-rubocop() {
-  # Don't need shellcheck to follow this `source`.
-  # shellcheck disable=SC1090
-  source "$HOMEBREW_LIBRARY/Homebrew/utils/ruby.sh"
+  source "${HOMEBREW_LIBRARY}/Homebrew/utils/ruby.sh"
   setup-ruby-path
+  setup-gem-home-bundle-gemfile
 
-  GEM_VERSION="$("$HOMEBREW_RUBY_PATH" "$RUBY_DISABLE_OPTIONS" -rrbconfig -e 'puts RbConfig::CONFIG["ruby_version"]')"
-  GEM_HOME="$HOMEBREW_LIBRARY/Homebrew/vendor/bundle/ruby/$GEM_VERSION"
+  BUNDLE_WITH="style"
+  export BUNDLE_WITH
 
-  if ! [[ -f "$GEM_HOME/bin/rubocop" ]]; then
-    "$HOMEBREW_BREW_FILE" install-bundler-gems
+  if ! bundle check &>/dev/null
+  then
+    "${HOMEBREW_BREW_FILE}" install-bundler-gems --add-groups="${BUNDLE_WITH}"
   fi
 
-  export GEM_HOME
-  export PATH="$GEM_HOME/bin:$PATH"
+  export PATH="${GEM_HOME}/bin:${PATH}"
 
-  # Unconditional -W0 to avoid printing e.g.:
-  # warning: parser/current is loading parser/ruby26, which recognizes
-  # warning: 2.6.6-compliant syntax, but you are running 2.6.3.
-  exec "$HOMEBREW_RUBY_PATH" "$RUBY_DISABLE_OPTIONS" -W0 -S rubocop "$@"
+  RUBOCOP="${HOMEBREW_LIBRARY}/Homebrew/utils/rubocop.rb"
+  exec "${HOMEBREW_RUBY_PATH}" "${RUBOCOP}" "$@"
 }

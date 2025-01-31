@@ -1,19 +1,18 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
-require "rubocops/extend/formula"
+require "rubocops/extend/formula_cop"
 
 module RuboCop
   module Cop
     module FormulaAudit
       # This cop audits the `bottle` block in formulae.
-      #
-      # @api private
       class BottleFormat < FormulaCop
         extend AutoCorrector
 
-        def audit_formula(_node, _class_node, _parent_class_node, body_node)
-          bottle_node = find_block(body_node, :bottle)
+        sig { override.params(formula_nodes: FormulaNodes).void }
+        def audit_formula(formula_nodes)
+          bottle_node = find_block(formula_nodes.body_node, :bottle)
           return if bottle_node.nil?
 
           sha256_nodes = find_method_calls_by_name(bottle_node.body, :sha256)
@@ -54,13 +53,12 @@ module RuboCop
       end
 
       # This cop audits the indentation of the bottle tags in the `bottle` block in formulae.
-      #
-      # @api private
       class BottleTagIndentation < FormulaCop
         extend AutoCorrector
 
-        def audit_formula(_node, _class_node, _parent_class_node, body_node)
-          bottle_node = find_block(body_node, :bottle)
+        sig { override.params(formula_nodes: FormulaNodes).void }
+        def audit_formula(formula_nodes)
+          bottle_node = find_block(formula_nodes.body_node, :bottle)
           return if bottle_node.nil?
 
           sha256_nodes = find_method_calls_by_name(bottle_node.body, :sha256)
@@ -82,7 +80,7 @@ module RuboCop
 
             offending_node(hash)
             problem "Align bottle tags" do |corrector|
-              new_line = " " * (max_tag_column - tag_column) + hash.source
+              new_line = (" " * (max_tag_column - tag_column)) + hash.source
               corrector.replace(hash.source_range, new_line)
             end
           end
@@ -90,13 +88,12 @@ module RuboCop
       end
 
       # This cop audits the indentation of the sha256 digests in the`bottle` block in formulae.
-      #
-      # @api private
       class BottleDigestIndentation < FormulaCop
         extend AutoCorrector
 
-        def audit_formula(_node, _class_node, _parent_class_node, body_node)
-          bottle_node = find_block(body_node, :bottle)
+        sig { override.params(formula_nodes: FormulaNodes).void }
+        def audit_formula(formula_nodes)
+          bottle_node = find_block(formula_nodes.body_node, :bottle)
           return if bottle_node.nil?
 
           sha256_nodes = find_method_calls_by_name(bottle_node.body, :sha256)
@@ -118,7 +115,7 @@ module RuboCop
 
             offending_node(hash)
             problem "Align bottle digests" do |corrector|
-              new_line = " " * (max_digest_column - digest_column) + hash.source
+              new_line = (" " * (max_digest_column - digest_column)) + hash.source
               corrector.replace(hash.source_range, new_line)
             end
           end
@@ -126,13 +123,12 @@ module RuboCop
       end
 
       # This cop audits the order of the `bottle` block in formulae.
-      #
-      # @api private
       class BottleOrder < FormulaCop
         extend AutoCorrector
 
-        def audit_formula(_node, _class_node, _parent_class_node, body_node)
-          bottle_node = find_block(body_node, :bottle)
+        sig { override.params(formula_nodes: FormulaNodes).void }
+        def audit_formula(formula_nodes)
+          bottle_node = find_block(formula_nodes.body_node, :bottle)
           return if bottle_node.nil?
           return if bottle_node.child_nodes.blank?
 

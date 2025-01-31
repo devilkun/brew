@@ -1,10 +1,9 @@
-# typed: false
 # frozen_string_literal: true
 
 require "test/support/fixtures/testball"
 require "formula"
 
-describe Formula do
+RSpec.describe Formula do
   describe "#uses_from_macos" do
     before do
       allow(OS).to receive(:mac?).and_return(false)
@@ -54,11 +53,9 @@ describe Formula do
 
       expect(f.class.stable.deps[0].name).to eq("hello_both")
       expect(f.class.stable.deps[1].name).to eq("hello_linux")
-      expect(f.class.stable.deps[2]).to eq(nil)
+      expect(f.class.stable.deps[2]).to be_nil
     end
-  end
 
-  describe "#on_linux" do
     it "adds a patch on Linux only" do
       f = formula do
         homepage "https://brew.sh"
@@ -81,9 +78,7 @@ describe Formula do
       expect(f.patchlist.first.strip).to eq(:p1)
       expect(f.patchlist.first.url).to eq("patch_linux")
     end
-  end
 
-  describe "#on_linux" do
     it "uses on_linux within a resource block" do
       f = formula do
         homepage "https://brew.sh"

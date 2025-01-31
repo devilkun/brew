@@ -1,23 +1,24 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
+
+require "compilers"
 
 class Keg
   def relocate_dynamic_linkage(relocation)
     # Patching the dynamic linker of glibc breaks it.
-    return if name == "glibc"
+    return if name.match? Version.formula_optionally_versioned_regex(:glibc)
 
-    # Patching patchelf using itself fails with "Text file busy" or SIGBUS.
-    return if name == "patchelf"
+    old_prefix, new_prefix = relocation.replacement_pair_for(:prefix)
 
     elf_files.each do |file|
       file.ensure_writable do
-        change_rpath(file, relocation.old_prefix, relocation.new_prefix)
+        change_rpath(file, old_prefix, new_prefix)
       end
     end
   end
 
   def change_rpath(file, old_prefix, new_prefix)
-    return if !file.elf? || !file.dynamic_elf?
+    return false if !file.elf? || !file.dynamic_elf?
 
     updated = {}
     old_rpath = file.rpath
@@ -28,6 +29,12 @@ class Keg
 
       lib_path = "#{new_prefix}/lib"
       rpath << lib_path unless rpath.include? lib_path
+
+      # Add GCC's lib directory (as of GCC 12+) to RPATH when there is existing versioned linkage.
+      # This prevents broken linkage when pouring bottles built with an old GCC formula.
+      unless name.match?(Version.formula_optionally_versioned_regex(:gcc))
+        rpath.map! { |rp| rp.sub(%r{lib/gcc/\d+$}, "lib/gcc/current") }
+      end
 
       rpath.join(":")
     end
@@ -44,6 +51,7 @@ class Keg
     updated[:interpreter] = new_interpreter if old_interpreter != new_interpreter
 
     file.patch!(interpreter: updated[:interpreter], rpath: updated[:rpath])
+    true
   end
 
   def detect_cxx_stdlibs(options = {})
@@ -75,22 +83,5 @@ class Keg
       elf_files << pn
     end
     elf_files
-  end
-
-  def self.relocation_formulae
-    ["patchelf"]
-  end
-
-  def self.bottle_dependencies
-    @bottle_dependencies ||= begin
-      formulae = relocation_formulae
-      gcc = Formula["gcc"]
-      if !Homebrew::EnvConfig.force_homebrew_on_linux? &&
-         DevelopmentTools.non_apple_gcc_version("gcc") < gcc.version.to_i
-        formulae += gcc.recursive_dependencies.map(&:name)
-        formulae << gcc.name
-      end
-      formulae
-    end
   end
 end

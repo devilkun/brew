@@ -1,29 +1,29 @@
-# typed: false
 # frozen_string_literal: true
 
 require "cache_store"
 
-describe CacheStoreDatabase do
+RSpec.describe CacheStoreDatabase do
   subject(:sample_db) { described_class.new(:sample) }
 
   describe "self.use" do
     let(:type) { :test }
 
     it "creates a new `DatabaseCache` instance" do
-      cache_store = double("cache_store", write_if_dirty!: nil)
+      cache_store = instance_double(described_class, "cache_store", write_if_dirty!: nil)
       expect(described_class).to receive(:new).with(type).and_return(cache_store)
       expect(cache_store).to receive(:write_if_dirty!)
-      described_class.use(type) { |_db| }
+      described_class.use(type) do |_db|
+        # do nothing
+      end
     end
   end
 
   describe "#set" do
-    let(:db) { double("db", :[]= => nil) }
+    let(:db) { instance_double(Hash, "db", :[]= => nil) }
 
     it "sets the value in the `CacheStoreDatabase`" do
       allow(File).to receive(:write)
-      allow(sample_db).to receive(:created?).and_return(true)
-      allow(sample_db).to receive(:db).and_return(db)
+      allow(sample_db).to receive_messages(created?: true, db:)
 
       expect(db).to receive(:has_key?).with(:foo).and_return(false)
       expect(db).not_to have_key(:foo)
@@ -32,24 +32,22 @@ describe CacheStoreDatabase do
   end
 
   describe "#get" do
-    context "database created" do
-      let(:db) { double("db", :[] => "bar") }
+    context "with a database created" do
+      let(:db) { instance_double(Hash, "db", :[] => "bar") }
 
       it "gets value in the `CacheStoreDatabase` corresponding to the key" do
-        allow(sample_db).to receive(:created?).and_return(true)
         expect(db).to receive(:has_key?).with(:foo).and_return(true)
-        allow(sample_db).to receive(:db).and_return(db)
+        allow(sample_db).to receive_messages(created?: true, db:)
         expect(db).to have_key(:foo)
         expect(sample_db.get(:foo)).to eq("bar")
       end
     end
 
-    context "database not created" do
-      let(:db) { double("db", :[] => nil) }
+    context "without a database created" do
+      let(:db) { instance_double(Hash, "db", :[] => nil) }
 
       before do
-        allow(sample_db).to receive(:created?).and_return(false)
-        allow(sample_db).to receive(:db).and_return(db)
+        allow(sample_db).to receive_messages(created?: false, db:)
       end
 
       it "does not get value in the `CacheStoreDatabase` corresponding to key" do
@@ -64,12 +62,11 @@ describe CacheStoreDatabase do
   end
 
   describe "#delete" do
-    context "database created" do
-      let(:db) { double("db", :[] => { foo: "bar" }) }
+    context "with a database created" do
+      let(:db) { instance_double(Hash, "db", :[] => { foo: "bar" }) }
 
       before do
-        allow(sample_db).to receive(:created?).and_return(true)
-        allow(sample_db).to receive(:db).and_return(db)
+        allow(sample_db).to receive_messages(created?: true, db:)
       end
 
       it "deletes value in the `CacheStoreDatabase` corresponding to the key" do
@@ -78,12 +75,11 @@ describe CacheStoreDatabase do
       end
     end
 
-    context "database not created" do
-      let(:db) { double("db", delete: nil) }
+    context "without a database created" do
+      let(:db) { instance_double(Hash, "db", delete: nil) }
 
       before do
-        allow(sample_db).to receive(:created?).and_return(false)
-        allow(sample_db).to receive(:db).and_return(db)
+        allow(sample_db).to receive_messages(created?: false, db:)
       end
 
       it "does not call `db.delete` if `CacheStoreDatabase.created?` is `false`" do
@@ -94,13 +90,13 @@ describe CacheStoreDatabase do
   end
 
   describe "#write_if_dirty!" do
-    context "database open" do
+    context "with an open database" do
       it "does not raise an error when `close` is called on the database" do
         expect { sample_db.write_if_dirty! }.not_to raise_error(NoMethodError)
       end
     end
 
-    context "database not open" do
+    context "without an open database" do
       before do
         sample_db.instance_variable_set(:@db, nil)
       end
@@ -118,7 +114,7 @@ describe CacheStoreDatabase do
       allow(sample_db).to receive(:cache_path).and_return(cache_path)
     end
 
-    context "`cache_path.exist?` returns `true`" do
+    context "when `cache_path.exist?` returns `true`" do
       before do
         allow(cache_path).to receive(:exist?).and_return(true)
       end
@@ -128,7 +124,7 @@ describe CacheStoreDatabase do
       end
     end
 
-    context "`cache_path.exist?` returns `false`" do
+    context "when `cache_path.exist?` returns `false`" do
       before do
         allow(cache_path).to receive(:exist?).and_return(false)
       end
